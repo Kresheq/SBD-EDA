@@ -1,0 +1,579 @@
+---
+title: "OpenPowerLiftingEDA"
+author: "Filip Głogowski"
+date: "2023-11-26"
+output: 
+  html_document:
+    theme: united
+    toc: yes
+    toc_float:
+      collapsed: true
+---
+
+Pakiety, z których będę korzystać:
+
+```{r warning = FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(mice)
+library(tidyverse)
+library(corrplot)
+```
+
+# Wstęp
+
+Zacznijmy od przedstawienia zestawu danych, z którego bedziemy korzystać. Są to dane ze strony <https://openpowerlifting.gitlab.io/opl-csv/> i przedstawiają dane dotyczące występów zawodników od początku istnienia organizacji do obecnego roku.
+
+```{r echo=FALSE}
+
+sciezka <- file.path("SBD-EDA", "openpowerlifting2023.csv")
+
+openpowerlifting2023 <- read.csv("openpowerlifting2023.csv")
+```
+
+```{r}
+head(openpowerlifting2023)
+summary(openpowerlifting2023)
+```
+
+Przedstawiam nazwy kolum wraz z ich wytłumaczeniem:
+
+1.  **Imię i Nazwisko (`Name`):**
+
+    -   Obowiązkowe. Zawiera imię i nazwisko zawodnika w kodowaniu UTF-8.
+
+    -   W przypadku wspólnego imienia i nazwiska dwóch zawodników, odróżniane są za pomocą symbolu \# i unikalnej liczby. Na przykład, dwóch zawodników o nazwisku Jan Kowalski otrzymałoby wartości Jan Kowalski #1 i Jan Kowalski #2.
+
+2.  **Płeć (`Sex`):**
+
+    -   Obowiązkowe. Określa płeć zawodnika, przyjmując wartości M (mężczyzna), F (kobieta) lub Mx (płeć neutralna).
+
+    -   Kategoria Mx jest neutralna płciowo i jest szczególnie odpowiednia dla zawodników niebinarnych.
+
+3.  **Typ Zawodów (`Event`):**
+
+    -   Obowiązkowe. Określa rodzaj zawodów, w jakich zawodnik uczestniczył.
+
+    -   Wartości to: SBD (Trójbojowy), BD (Bench-Deadlift), SD (Squat-Deadlift), SB (Squat-Bench), S (Tylko przysiady), B (Tylko bench press), D (Tylko martwy ciąg).
+
+4.  **Sprzęt (`Equipment`):**
+
+    -   Obowiązkowe. Określa kategorię sprzętu, na którym przeprowadzane były próby.
+
+    -   Przykładowe wartości: Raw (Bez dodatkowego sprzętu), Wraps (Dozwolone bandażowanie kolan), Single-ply (Wyposażenie jednowarstwowe), Multi-ply (Wyposażenie wielowarstwowe), Unlimited (Wyposażenie wielowarstwowe lub sprzęt z gumy), Straps (Dozwolone użycie pasów podczas martwego ciągu).
+
+5.  **Wiek (`Age`):**
+
+    -   Opcjonalne. Wiek zawodnika na dzień rozpoczęcia zawodów, jeśli dostępny.
+
+    -   Wiek może być podany jako dokładny lub przybliżony (z dodatkowym 0.5), co oznacza, że zawodnik może mieć dwa możliwe wieki (n lub n+1).
+
+6.  **Klasa Wiekowa (`AgeClass`):**
+
+    -   Opcjonalne. Klasa wiekowa, do której należy zawodnik, na przykład 40-45. Bazuje na dokładnym wieku zawodnika w dniu zawodów.
+
+7.  **Klasa Roku Urodzenia (`BirthYearClass`):**
+
+    -   Opcjonalne. Klasa roku urodzenia, np. 40-49. Zakres obejmuje najstarszy wiek zawodnika w danym roku. Wykorzystywane głównie przez federacje IPF i ich afiliacje.
+
+8.  **Dywizja (`Division`):**
+
+    -   Opcjonalne. Dowolny tekst w kodowaniu UTF-8 opisujący dywizję zawodów, np. Open lub Juniors 20-23.
+
+9.  **Masa Ciała (`BodyweightKg`):**
+
+    -   Opcjonalne. Zarejestrowana masa ciała zawodnika w chwili zawodów, z dokładnością do dwóch miejsc po przecinku.
+
+10. **Klasa Masy Ciała (`WeightClassKg`):**
+
+    -   Opcjonalne. Klasa masy ciała, w której zawodnik uczestniczył, z dokładnością do dwóch miejsc po przecinku. Może być podana jako maksimum lub minimum.
+
+11. **Próby Przysiadu (`Squat1Kg`, `Squat2Kg`, `Squat3Kg`, `Squat4Kg`):**
+
+    -   Opcjonalne. Wartości pierwszych, drugich, trzecich i ewentualnie czwartych prób dla przysiadu.
+
+12. **Próby Ławki (`Bench1Kg`, `Bench2Kg`, `Bench3Kg`, `Bench4Kg`):**
+
+    -   Opcjonalne. Wartości pierwszych, drugich, trzecich i ewentualnie czwartych prób dla ławki.
+
+13. **Próby Martwego Ciągu (`Deadlift1Kg`, `Deadlift2Kg`, `Deadlift3Kg`, `Deadlift4Kg`):**
+
+    -   Opcjonalne. Wartości pierwszych, drugich, trzecich i ewentualnie czwartych prób dla martwego ciągu.
+
+14. **Najlepsze Wyniki (`Best3SquatKg`, `Best3BenchKg`, `Best3DeadliftKg`):**
+
+    -   Opcjonalne. Maksymalne wartości spośród pierwszych trzech udanych prób dla każdej z trzech konkurencji.
+
+15. **Łączna Masa Podniesiona (`TotalKg`):**
+
+    -   Opcjonalne. Suma wartości **`Best3SquatKg`**, **`Best3BenchKg`** i **`Best3DeadliftKg`**, jeśli wszystkie trzy próby były udane. Jeśli jedna z prób nie powiodła się lub zawodnik został zdyskwalifikowany z innych powodów, pole **`TotalKg`** jest puste.
+
+16. **Punkty Dots:**
+
+    -   Opcjonalne. Liczba dodatnia, jeśli można obliczyć punkty Dots, puste, jeśli zawodnik został zdyskwalifikowany.
+
+17. **Punkty Wilks:**
+
+    -   Opcjonalne. Liczba dodatnia, jeśli można obliczyć punkty Wilks, puste, jeśli zawodnik został zdyskwalifikowany.
+
+18. **Punkty Glossbrenner:**
+
+    -   Opcjonalne. Liczba dodatnia, jeśli można obliczyć punkty Glossbrenner, puste, jeśli zawodnik został zdyskwalifikowany.
+
+19. **Punkty Goodlift:**
+
+    -   Opcjonalne. Punkty IPF GL (Successor to IPF Points). Liczba dodatnia, jeśli można obliczyć punkty IPF GL, puste, jeśli zawodnik został zdyskwalifikowany lub punkty IPF GL były niezdefiniowane dla danego typu zawodów.
+
+20. **Testowane (`Tested`):**
+
+    -   Opcjonalne. **`Yes`**, jeśli zawodnik startował w kategorii testowanej pod kątem stosowania substancji dopingujących, puste w przeciwnym razie.
+
+21. **Kraj (`Country`):**
+
+    -   Opcjonalne. Kraj pochodzenia zawodnika, jeśli jest znany.
+
+22. **Stan (`State`):**
+
+    -   Opcjonalne. Stan, prowincja lub region pochodzenia zawodnika, jeśli jest znany.
+
+23. **Federacja (`Federation`):**
+
+    -   Obowiązkowe. Federacja, która zorganizowała zawody.
+
+24. **Nadrzędna Federacja (`ParentFederation`):**
+
+    -   Opcjonalne. Nadrzędna federacja, która przyznała sankcję zawodom, zazwyczaj międzynarodowa.
+
+25. **Data (`Date`):**
+
+    -   Obowiązkowe. Data rozpoczęcia zawodów w formacie ISO 8601.
+
+26. **Kraj Zawodów (`MeetCountry`):**
+
+    -   Obowiązkowe. Kraj, w którym odbyły się zawody.
+
+27. **Stan Zawodów (`MeetState`):**
+
+    -   Opcjonalne. Stan, prowincja lub region, w którym odbyły się zawody.
+
+28. **Nazwa Zawodów (`MeetName`):**
+
+    -   Obowiązkowe. Nazwa zawodów, bez uwzględniania roku i federacji.
+
+# Przygotowanie danych do pracy.
+
+Filtrowanie Wierszy Związanych z Trójbojem Siłowym:
+
+Wybieram tylko te wiersze z openpowerlifting2023, które są związane z trójbojem siłowym (Event == 'SBD') tworząc z nich nową ramkę danych SBD zawierającą tylko wybrane kolumny z wcześniej utworzonej ramki danych openpowerlifting2023. Usuwam brakujące dane za pomocą funkcji `na.omit()`, która usuwa wiersze zawierające puste dane `NA`.
+
+Usuwwam też wiersze, które nie maja sklasyfikowanego przedziału wiekowego i wiersze, w których wiek jest mniejszy od 10 ze względu na to, że starsze dane mogły zawierać osoby, których wiek nie był znany w takich przypadkach wpisywano czasem zaniżony wiek.
+
+Zmieniamwartości w kolumnie `Tested`. Jeżeli kolumna jest pusta, ustawiam "Brak Testu", a jeżeli jest równa "Yes", ustawiam "Testowany".
+
+Zaokrąglam w dól wartości wieku w kolumnie `Age` wynika to z tego, że jeśli data urodzenia zawodnika nie była doprecyzowana wpisywano wartość z połówką np.14,5. Oznaczało to, że zawodnik może mieć zarówno 14 jak i 15 lat.
+
+Tworzę też ramkę danych `SBDName`, która jest pogrupowaną ramką `SBD` według zawodników wybierając wiersz w którym ten zawodnik osiągnał najlepszy wynik.
+
+```{r}
+SBD <- filter(openpowerlifting2023,Event=='SBD')
+SBD <- subset(SBD, select = c("Name", "Sex", "Event", "Equipment", "Age", "AgeClass", "Division", 
+                              "BodyweightKg", "WeightClassKg", "Best3SquatKg", "Best3BenchKg",
+                              "Best3DeadliftKg", "TotalKg", "Place", "Date", "Tested", "MeetName","Country"))
+
+SBD<- na.omit(SBD)
+SBD <- SBD[!(SBD$AgeClass==""),]
+SBD<-SBD[SBD$Age>=10,]
+SBD <- SBD %>%
+  mutate(Tested = ifelse(Tested == "", "Brak Testu",
+                         ifelse(Tested == "Yes", "Testowany", Tested)))
+SBD <- SBD %>%
+  mutate(Age = floor(Age))
+
+SBDName <- SBD %>%
+  group_by(Name) %>%
+  slice_max(order_by = TotalKg) %>%
+  ungroup() %>%
+  distinct(Name, .keep_all = TRUE)
+```
+
+# W jakim wieku zawodnicy osiągali najlepsze wyniki?
+
+Zaczniemy od przedstawienia przeglądnięcia wykresów gęstości.
+
+```{r}
+SBD %>%
+  ggplot() +
+  theme_light()+
+  geom_point(aes(x=Age,y= TotalKg, color = Sex), alpha = 0.1,size=2)+
+  facet_wrap(~ Sex, ncol = 3) +
+  labs(title="Wiek, a wynik",
+       x="Wiek",
+       y="Wynik",
+       color="Płeć")
+SBD%>%
+  ggplot() +
+  geom_density(aes(x = Age),
+               color = "darkgreen", fill = "lightgreen") +
+  theme_light() +
+  labs(title = "W jakim wieku najczesciej startuja zawodnicy",
+       x = "Wiek")
+SBD %>%
+  ggplot() +
+  geom_density(aes(x = TotalKg),
+               color = "darkgreen", fill = "lightgreen") +
+  theme_light() +
+  labs(title = "Jakie wyniki są najpopularniejsze",
+       x = "Wynik w kg")
+
+
+
+```
+
+Widać, że najczestsze wyniki to ok. 550 kg, natomiast najwiecej wystepów jest 23 latków. Sprawdźmy teraz w jakim wieku zawodnicy osiągają najlepsze wyniki. Korzystam z wczesniej stworzonej ramki `SBDName.` i grupuje te ramkę według wieku `Age`, przy tym uśredniając wynik `TotalKg` . Następnie wypisuje wiek, dla którego jest najlepszy sredni wynik później rysuję wykres pokazujący wyniki dla wieków.
+
+```{r}
+sredniWynikWiek <- SBDName %>%
+  group_by(Age) %>%
+  summarise(SredniWynik = mean(TotalKg, na.rm = TRUE))
+sredniWynikWiek[which.max(sredniWynikWiek$SredniWynik),]
+
+sredniWynikWiek %>%
+  ggplot() +
+  theme_light()+
+  geom_point(aes(x=Age,y= SredniWynik),color="deepskyblue",size=2)+
+  labs(title="Sredni wynik wszystkich zawodników w danym wieku",
+       x="Wiek",
+       y="Wynik",)
+
+
+```
+
+# Czy nietestowani zawodnicy osiągają lepsze wyniki?
+
+Zacznijmy od sprawdzenia czy więcej jest zawodników testowanych czy nie testowanych (używających doping)
+
+```{r}
+table(SBD$Tested)
+```
+
+Jak widać przeważają zawodnicy testowani, wynika to z tego, że wiekszość zawodów jest właśnie dla osób nie używających dopingu.
+
+Teraz przeanalizujemy najlepsze wyniki sportowców. Stworzę dwie ramki danych, jedna `sredniWynikWiekD`, która zawiera najlepsze wyniki osób używających doping oraz `sredniWynikWiekBD,` która zawiera najlepsze wyniki osób nie używających dopingu. Następnie wypisuje w jakim wieku najlepszy wynik osiągają osoby testowane i nie testowane.
+
+```{r}
+sredniWynikWiekD <- SBDName %>%
+  group_by(Age) %>%
+  summarise(SredniWynik = mean(TotalKg[Tested=="Brak Testu"], na.rm = TRUE))%>%
+  na.omit(sredniWynikWiekBD)
+
+sredniWynikWiekBD <- SBDName %>%
+  group_by(Age) %>%
+  summarise(SredniWynik = mean(TotalKg[Tested=="Testowany"], na.rm = TRUE))%>%
+  na.omit(sredniWynikWiekBD)
+
+sredniWynikWiekBD[which.max(sredniWynikWiekBD$SredniWynik),]
+sredniWynikWiekD[which.max(sredniWynikWiekD$SredniWynik),]
+
+
+```
+
+Jak widać zawodnicy naturalni, nie biorący dopingu osiągali srednio najlepsze wyniki w wieku 22 lat a zawodnicy biorący doping w wieku 34 lat.
+
+Narysujemy teraz wykres pokazujący jak rozkładały się wyniki z podziałem na osoby testowane i nie testowane.
+
+```{r}
+
+
+SBDName %>%
+  ggplot() +
+  theme_light()+
+  geom_point(aes(x=Age,y= TotalKg, color = Tested), alpha = 0.1,size=2)+
+  facet_wrap(~ Tested) +
+  labs(title="Różnice miedzy zawodnikami w tym samym wieku używającymi dopingu, a nie używającymi",
+       x="Wiek",
+       y="Wynik",
+       color="Czy zawodnik używał Dopingu?")
+
+
+
+```
+
+Przedstawię teraz wykres średnich wyników w każdym wieku, aby lepiej zobrazować, różnice między zawodnikami testowanymi, a nie testowanymi.
+
+```{r}
+polaczonewynikiWW <- bind_rows(list(Testowany = sredniWynikWiekBD, 'Brak Testu' = sredniWynikWiekD), .id = 'Doping')
+polaczonewynikiWW %>%
+  ggplot()+
+  theme_light()+ 
+  geom_point(aes(x=Age, y=SredniWynik,color=Doping))+
+ 
+  labs(title="Różnice miedzy zawodnikami w tym samym wieku używającymi dopingu, a nie używającymi",
+       x="Wiek",
+       y="Wynik",)
+
+```
+
+Jak widać zawodnicy nie testowani zdobywali znacznie lepsze wyniki po 22 roku życia od zawodników testowanych.
+
+# Przy użyciu jakiego sprzętu wyniki są najlepsze?
+
+Zacznę od zapoznania się z wykresem pokazującym jak rozkładają się wyniki przy używaniu różnych sprzętów.
+
+```{r}
+
+SBDName %>%
+  ggplot() +
+  theme_light()+
+  geom_point(aes(x=Age,y= TotalKg, color = Equipment), alpha = 0.1,size=2)+
+  facet_wrap(~ Equipment) +
+  labs(title="Różnice miedzy zawodnikami w tym samym wieku używającymi różnego sprzętu",
+       x="Wiek",
+       y="Wynik",
+       color="Jakiego zawodnik używał sprzętu")
+
+
+```
+
+Zajmę się teraz porządkowaniem danych tak aby znaleźć średnią wyniku dla każdego wieku i sprzętu. Tak aby wyniki były czytelniejsze i łatwiej można było wyciągać wnioski.
+
+```{r}
+sredniWynikWiekRAW <- SBDName %>%
+  group_by(Age) %>%
+  summarise(SredniWynik = mean(TotalKg[Equipment=="Raw"], na.rm = TRUE))%>%
+  na.omit(sredniWynikWiekBD)
+
+sredniWynikWiekSP <- SBDName %>%
+  group_by(Age) %>%
+  summarise(SredniWynik = mean(TotalKg[Equipment=="Single-ply"], na.rm = TRUE))%>%
+  na.omit(sredniWynikWiekBD)
+
+sredniWynikWiekMP <- SBDName %>%
+  group_by(Age) %>%
+  summarise(SredniWynik = mean(TotalKg[Equipment=="Multi-ply"], na.rm = TRUE))%>%
+  na.omit(sredniWynikWiekBD)
+
+sredniWynikWiekWR<- SBDName %>%
+  group_by(Age) %>%
+  summarise(SredniWynik = mean(TotalKg[Equipment=="Wraps"], na.rm = TRUE))%>%
+  na.omit(sredniWynikWiekBD)
+
+sredniWynikWiekUN <- SBDName %>%
+  group_by(Age) %>%
+  summarise(SredniWynik = mean(TotalKg[Equipment=="Unlimited"], na.rm = TRUE))%>%
+  na.omit(sredniWynikWiekBD)
+
+
+polaczonewynikiEQ <- bind_rows(list(Raw = sredniWynikWiekRAW,  'Single-Ply' = sredniWynikWiekSP, 'Multi-Ply'=sredniWynikWiekMP,Wraps=sredniWynikWiekWR,
+Unlimited=sredniWynikWiekUN), .id = 'Sprzęt')
+
+polaczonewynikiEQ %>%
+  ggplot() +
+  theme_light()+
+  geom_point(aes(x=Age,y= SredniWynik, color = Sprzęt),size=2)+
+  labs(title="Różnice miedzy zawodnikami w tym samym wieku używającymi różnego sprzętu.",
+       x="Wiek",
+       y="Wynik",
+       color="Jakiego zawodnik używał sprzętu?")
+
+
+polaczonewynikiEQ %>%
+  ggplot() +
+  theme_light()+
+  geom_point(aes(x=Age,y= SredniWynik, color = Sprzęt),size=2)+
+  facet_wrap(~Sprzęt)+
+  labs(title="Różnice miedzy zawodnikami w tym samym wieku używającymi różnego sprzętu.",
+       x="Wiek",
+       y="Wynik",
+       color="Jakiego zawodnik używał sprzętu?")
+
+```
+
+Z tych wykresów dokładnie widać, że wraz z wzrastającą ilością sprzętu zwiekszają się wyniki. Dlatego im mniej sprzętu tym bardziej prestiżowe rekordy siłowe.
+
+# Waga zawodnika, a wynik.
+
+Zajmę się teraz badaniem jak duży wpływ na wynik zawodnika ma jego waga. Czy istnieje więc powód istnienia kategorii wagowych?
+
+Zacznę najpierw od narysowania wykresu, który pokaże wyniki dla danej wagi.
+
+```{r}
+SBDName %>%
+  ggplot()+
+  theme_light()+
+  geom_point(aes(x=BodyweightKg,y= TotalKg, color = Sex), alpha = 0.1,size=2)+
+  facet_wrap(~Sex) +
+  labs(title="Masa ciała, a wyniki",
+       x="Waga",
+       y="Wynik",)
+ 
+
+```
+
+Jak można zauważyć, w miarę zwiekszającej się wagi zwiekszają sie też wyniki zbadajmy ten problem jeszcze przy użyciu korelacji rangowej Spearmana
+
+```{r}
+
+cor(SBDName$BodyweightKg,SBDName$TotalKg,method='spearman')  
+
+```
+
+Jak widać współczynnik korelacji rangowej Spearmana wynosi około 0,7 co wskazuje na dość silną zależność. Nie bez powodu zawodnicy startują w różnych kategoriach wagowych, każdy kilogram może mieć znaczenie w trójboju siłowym.
+
+# Zawodnicy tej samej wagi natomiast innej płci.
+
+W tym podpunkcie skupiam się na dwóch płciach. Niestety brakuje wystarczającej liczby danych dotyczących osób niebinarnych, aby wyciągać wnioski o ich wynikach.
+
+```{r}
+SBDF<- filter(SBDName, Sex == "F")
+SBDM<- filter(SBDName, Sex == "M")
+
+sredniwynikWagaM <- SBDM %>%
+  group_by(BodyweightKg) %>%
+  mutate(BodyweightKg = floor(BodyweightKg))%>%
+  summarise(SredniWynik = mean(TotalKg, na.rm = TRUE))
+sredniwynikWagaF <- SBDF %>%
+  group_by(BodyweightKg) %>%
+  mutate(BodyweightKg = floor(BodyweightKg))%>%
+  summarise(SredniWynik = mean(TotalKg, na.rm = TRUE))
+
+wynikiWagaPlec <- bind_rows(list(M = sredniwynikWagaM, F = sredniwynikWagaF), .id = 'Plec')
+wynikiWagaPlec %>%
+  ggplot() +
+  theme_light()+
+  geom_point(aes(x=BodyweightKg,y= SredniWynik, color = Plec),size=2)+
+  labs(title="Rożnice miedzy zawodnikami tej samej wagi a innej płci",
+       x="Waga",
+       y="Wynik",
+       color="Płeć")
+
+```
+
+Widać, że im wieksza waga tym wieksza różnica pomiędzy wynikami, aż dochodzimy do ok. 200 kg wtedy wyniki stają się mniej przewidywalne ze względu na mniejsza ilość zawodników w takiej wadze. Natomiast im niższa waga tym bardziej płeć przestaje mieć znaczenie.
+
+# Które podejście średnio wychodziło najlepiej?
+
+Zacznę od stworzenia nowej ramki danych `Podejscia`, która zawiera kolumny z informacjami dotyczącymi trzech podejść z każdego ćwiczenia
+
+```{r}
+Podejscia <- filter(openpowerlifting2023,Event=='SBD')
+Podejscia <- subset(Podejscia, select = c("Name","Squat1Kg","Squat2Kg","Squat3Kg",
+                                          "Bench1Kg","Bench2Kg","Bench3Kg",
+                                          "Deadlift1Kg","Deadlift2Kg","Deadlift3Kg"                                           ,"TotalKg"))%>%
+            na.omit(Podejscia)
+
+
+```
+
+Teraz zajmę się rysowaniem wykresu. Wykres bedzie przedstawiał średnie każdego ćwiczenia i podejścia. Dlatego stworzę nową ramkę danych, która bedzię zawierać tylko numeryczne dane, aby policzyć dla nich średnią.
+
+```{r}
+Numeryczne3podejscia <- Podejscia[, sapply(Podejscia, is.numeric)]
+
+SrednieZ3podejsc <- colMeans(Numeryczne3podejscia, na.rm = TRUE)
+
+
+
+barplot(SrednieZ3podejsc, 
+        main = "Które podejście przynosi średnio najlepszy rezultat",
+        col = "darkcyan",
+        names.arg = names(SrednieZ3podejsc),
+        ylim = c(2, max(SrednieZ3podejsc) + 20),
+        ylab = "Kg",
+        las=2)
+```
+
+Jak widać na wykresie, średnio najlepiej wychodziło pierwsze podejście. Może wynikać to z tego, że zawdonicy chcąc poprawić swój wynik próbowali podnieść większy cieżar przez co nie udawało im się i wpisywano wtedy wagę, którą zawodnik probował podnieść na minusie co oznacza nie udaną próbę.
+
+# Czy siła przekłada się pomiedzy różnymi ćwiczeniami?
+
+W tym podpunkcie zajmę się sprawdzeniem czy siła z jednego ćwiczenia przekłada sie na drugie ćwiczenie. W tym celu wykorzystam korelacje rang spearmana oraz narysuję wykres korelacji w celu lepszej wyizualizacji danych.
+
+```{r}
+PodejsciaNajlepsze <- filter(openpowerlifting2023,Event=='SBD')
+PodejsciaNajlepsze <- subset(PodejsciaNajlepsze, select = c("Best3SquatKg","Best3BenchKg","Best3DeadliftKg"))%>%
+  na.omit(PodejsciaNajlepsze)
+summary(PodejsciaNajlepsze)
+Kor = cor(PodejsciaNajlepsze, 
+          method = "spearman")
+round(Kor, 2)
+corrplot(Kor, method = "square", type = "upper")
+
+```
+
+Jak widać współczynnik korelacji jest bardzo wysoki co oznacza dużą zależność. Wynik nie jest niczym nie spodziewanym, zawodnicy w końcu przygotowują się do każdego ćwiczenia. Jednakże ciekawa jest obserwacja tak dużych wyników korelacji. Dowodzi to temu, że zawodnicy nie mają ulubionego ćwiczenia i wraz ze wzrostem wyników jednego ćwiczenia wzrastają też wyniki w innych ćwiczeniach.
+
+# Czy wyniki z roku na rok są coraz lepsze?
+
+Intuicja podpowiadałaby, że wyniki w miare upływu czasu powinny być coraz lepsze, w końcu nauka idzie do przodu i co za tym idzie wiedza o tym jak najoptymalniej wykonywać dane ćwiczenia. Czy aby na pewno? Zacznę od stworzenie dodatkowej kolumny, która będzie zawierała sam rok, w którym te zawody miały miejsce.
+
+```{r}
+SBD$Date <- as.Date(SBD$Date)
+
+SBD$Rok <- year(SBD$Date)
+
+
+SBDrok <- subset(SBD, select = c("Name", "Sex", "Event", "Equipment", "Age", "AgeClass", "Division", "BodyweightKg", "WeightClassKg", "Best3SquatKg","Best3BenchKg", "Best3DeadliftKg", "TotalKg", "Place", "Date", "Tested", "MeetName", "Rok"))
+
+```
+
+Teraz narysuję wykres, który pomoże zwizualizować jak wyglądały średnie wyniki na przestrzeni lat.
+
+```{r}
+SBDrokGrupowany <- SBDrok %>%
+  group_by(Rok) %>%
+  summarize('SredniaWynikow' = mean(TotalKg, na.rm = TRUE))
+SBDrokGrupowany %>%
+  ggplot() +
+  theme_light()+
+  geom_point(aes(x=Rok,y=SredniaWynikow),size=2,color="cornflowerblue")+
+  labs(title="Średnia wyników w każdym roku",
+       x="Rok",
+       y="Wynik")
+```
+
+Jak widać wykres mówi nam, że wyniki spadały na przestrzeni lat. Jaki może być tego powód?
+
+```{r}
+table(SBDrok$Rok)
+```
+
+Myślę, że odpowiedziom na o pytanie może być wzrastająca popularność, jak widać w starszych zawodach nie brało udziału dużo osób ponadto powstawały także nowe kategorie wagowe oraz sport ten stawał sie bardziej przystępny dla kobiet, także osób młodych.
+
+# Który kraj uzyskał najlepsza średnią wyników?
+
+Na początek stworzę ramkę danych, która będzie zawierała ranking krajów, który będzie zawierał średni wynik wszystkich zawodników, którzy pochodzili z danego kraju.
+
+```{r}
+KrajeRanking <- SBDName %>%
+  group_by(Country) %>%
+  summarise(SredniaTotalKg = mean(TotalKg, na.rm = TRUE))%>%
+  arrange(desc(SredniaTotalKg))%>%
+  mutate(Miejsce = row_number())
+
+
+```
+
+Teraz narysuję wykres kolumnowy dziesięciu pierwszych miejsc w rankingu krajów
+
+```{r}
+top10Kraje <- KrajeRanking %>%
+  head(10)
+
+ top10Kraje %>%
+  ggplot( aes(x = reorder(Country, SredniaTotalKg), y = SredniaTotalKg)) +
+  geom_bar(stat = "identity",color="cornflowerblue", fill = "skyblue") +
+  theme_minimal() +
+  labs(title = "Top 10 krajów z najwyższą średnią wyników",
+       x = "Kraj",
+       y = "Średni Wynik")
+ 
+```
+
+Jak widać w rankingu wygrywa nie istniejący już kraj Jugosławia. W takim razie które miejsce zajmuje Polska?
+
+```{r}
+ miejscePolski <- KrajeRanking %>%
+   filter(Country == "Poland") %>%
+   pull(Miejsce)
+miejscePolski
+```
