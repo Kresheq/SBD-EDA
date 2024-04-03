@@ -1,7 +1,5 @@
 # OpenPowerLiftingEDA
-
-![OpenPowerLiftingEDA](link_do_obrazka)
-
+https://openpowerlifting.gitlab.io/opl-csv/
 ## Autor
 - Filip Głogowski
 
